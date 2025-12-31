@@ -1,0 +1,37 @@
+[package]
+name = "transcribble-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+transcribble-core = { path = "../transcribble-core" }
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# Interactive prompts
+dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+console = "0.15"
+indicatif = "0.17"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Input handling (for hotkey listening and auto-typing)
+rdev = "0.5"
+enigo = "0.2"
+
+# Error handling
+anyhow = "1.0"
+
+# Serialization (for display)
+serde_json = "1.0"
+chrono = "0.4"
+
+[[bin]]
+name = "transcribble"
+path = "src/main.rs"
+
+[[bin]]
+name = "tscrbl"
+path = "src/main.rs"

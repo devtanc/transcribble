@@ -1,5 +1,4 @@
 use anyhow::Result;
-use indicatif::{ProgressBar, ProgressStyle};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -13,7 +12,6 @@ pub struct ModelInfo {
     pub filename: &'static str,
     pub size_mb: u32,
     pub description: &'static str,
-    #[allow(dead_code)]
     pub english_only: bool,
 }
 
@@ -101,8 +99,15 @@ pub fn list_downloaded_models() -> Vec<&'static ModelInfo> {
         .collect()
 }
 
-/// Download a model from Hugging Face
-pub async fn download_model(model_name: &str) -> Result<PathBuf> {
+/// Progress callback for model downloads
+/// Called with (bytes_downloaded, total_bytes)
+pub type ProgressCallback = Box<dyn Fn(u64, u64) + Send>;
+
+/// Download a model from Hugging Face with optional progress callback
+pub async fn download_model_with_progress<F>(model_name: &str, on_progress: Option<F>) -> Result<PathBuf>
+where
+    F: Fn(u64, u64) + Send + 'static,
+{
     let model_info = get_model_info(model_name).ok_or_else(|| {
         let available: Vec<_> = AVAILABLE_MODELS.iter().map(|m| m.name).collect();
         anyhow::anyhow!(
@@ -126,9 +131,7 @@ pub async fn download_model(model_name: &str) -> Result<PathBuf> {
         return Ok(output_path);
     }
 
-    println!("Downloading {} ({} MB)...", model_info.name, model_info.size_mb);
-
-    // Download with progress bar
+    // Download with progress
     let client = reqwest::Client::new();
     let response = client.get(&url).send().await?;
 
@@ -141,13 +144,6 @@ pub async fn download_model(model_name: &str) -> Result<PathBuf> {
 
     let total_size = response.content_length().unwrap_or(0);
 
-    let pb = ProgressBar::new(total_size);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")?
-            .progress_chars("#>-"),
-    );
-
     let mut file = File::create(&output_path)?;
     let mut downloaded: u64 = 0;
     let mut stream = response.bytes_stream();
@@ -157,13 +153,18 @@ pub async fn download_model(model_name: &str) -> Result<PathBuf> {
         let chunk = chunk?;
         file.write_all(&chunk)?;
         downloaded += chunk.len() as u64;
-        pb.set_position(downloaded);
+
+        if let Some(ref callback) = on_progress {
+            callback(downloaded, total_size);
+        }
     }
 
-    pb.finish_and_clear();
-    println!("Downloaded to: {}", output_path.display());
-
     Ok(output_path)
+}
+
+/// Download a model from Hugging Face (without progress callback)
+pub async fn download_model(model_name: &str) -> Result<PathBuf> {
+    download_model_with_progress::<fn(u64, u64)>(model_name, None).await
 }
 
 /// Display format for model selection

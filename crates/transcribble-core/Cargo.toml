@@ -1,0 +1,42 @@
+[package]
+name = "transcribble-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Audio
+cpal = "0.15"
+
+# Transcription
+whisper-rs = "0.12"
+
+# Input/Output
+enigo = "0.2"
+rdev = "0.5"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP client for model downloads
+reqwest = { version = "0.12", features = ["stream"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Error handling
+anyhow = "1.0"
+
+# System
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3.14"

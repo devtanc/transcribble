@@ -1,2 +1,14 @@
 /target
 .claude/
+
+# Node
+node_modules/
+
+# Build output
+ui/dist/
+
+# macOS
+.DS_Store
+
+# Dev/test files
+dev_test_output_file

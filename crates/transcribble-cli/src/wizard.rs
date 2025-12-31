@@ -1,10 +1,56 @@
 use anyhow::Result;
 use console::style;
 use dialoguer::{theme::ColorfulTheme, Select};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::config::Config;
-use crate::hotkeys::HOTKEY_OPTIONS;
-use crate::models::{download_model, is_model_downloaded, AVAILABLE_MODELS};
+use transcribble_core::{
+    Config, HOTKEY_OPTIONS, AVAILABLE_MODELS,
+    models::{download_model_with_progress, is_model_downloaded, get_model_path},
+};
+
+/// Download a model with CLI progress bar
+async fn download_model_with_cli_progress(model_name: &str) -> Result<std::path::PathBuf> {
+    let model_info = transcribble_core::get_model_info(model_name)
+        .ok_or_else(|| anyhow::anyhow!("Unknown model: {}", model_name))?;
+
+    println!("Downloading {} ({} MB)...", model_info.name, model_info.size_mb);
+
+    let pb = Arc::new(std::sync::Mutex::new(None::<ProgressBar>));
+    let pb_clone = pb.clone();
+    let total_size = Arc::new(AtomicU64::new(0));
+    let total_size_clone = total_size.clone();
+
+    let path = download_model_with_progress(model_name, Some(move |downloaded: u64, total: u64| {
+        let mut pb_guard = pb_clone.lock().unwrap();
+
+        // Initialize progress bar on first callback
+        if pb_guard.is_none() && total > 0 {
+            total_size_clone.store(total, Ordering::SeqCst);
+            let bar = ProgressBar::new(total);
+            bar.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+            *pb_guard = Some(bar);
+        }
+
+        if let Some(ref bar) = *pb_guard {
+            bar.set_position(downloaded);
+        }
+    })).await?;
+
+    // Finish the progress bar
+    if let Some(bar) = pb.lock().unwrap().take() {
+        bar.finish_and_clear();
+    }
+
+    println!("Downloaded to: {}", path.display());
+    Ok(path)
+}
 
 /// Run the interactive setup wizard
 pub async fn run_wizard() -> Result<Config> {
@@ -46,7 +92,7 @@ pub async fn run_wizard() -> Result<Config> {
     // Download if needed
     let model_path = if !is_model_downloaded(selected_model.name) {
         println!();
-        download_model(selected_model.name).await?
+        download_model_with_cli_progress(selected_model.name).await?
     } else {
         println!();
         println!(
@@ -54,7 +100,7 @@ pub async fn run_wizard() -> Result<Config> {
             style("✓").green(),
             selected_model.name
         );
-        crate::models::get_model_path(selected_model.name)
+        get_model_path(selected_model.name)
     };
 
     // Step 2: Hotkey selection
@@ -142,9 +188,9 @@ pub async fn run_reconfigure() -> Result<Config> {
 
     let model_path = if !is_model_downloaded(selected_model.name) {
         println!();
-        download_model(selected_model.name).await?
+        download_model_with_cli_progress(selected_model.name).await?
     } else {
-        crate::models::get_model_path(selected_model.name)
+        get_model_path(selected_model.name)
     };
 
     // Hotkey selection

@@ -1,7 +1,7 @@
 use console::{style, Term};
 use std::io::{self, Write};
 
-use crate::config::Config;
+use transcribble_core::Config;
 
 /// Manages styled console output
 pub struct OutputManager {

@@ -1,24 +1,20 @@
-mod audio;
-mod config;
-mod history;
-mod hotkeys;
-mod models;
 mod output;
-mod transcription;
 mod wizard;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use console::style;
-use enigo::{Enigo, Keyboard, Settings};
+use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-use config::Config;
-use history::TranscriptionEntry;
-use hotkeys::parse_hotkey;
-use models::{is_model_downloaded, list_downloaded_models, AVAILABLE_MODELS};
+use transcribble_core::{
+    AudioCapture, Config, TranscriptionEntry,
+    parse_hotkey, load_model, transcribe,
+    models::{download_model_with_progress, get_model_path, is_model_downloaded, list_downloaded_models, AVAILABLE_MODELS},
+    history,
+};
 use output::OutputManager;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -102,7 +98,7 @@ async fn main() -> Result<()> {
             "{}",
             style("Note: --download-model is deprecated. Use 'transcribble models --download' instead.").yellow()
         );
-        models::download_model(model_name).await?;
+        download_model_cli(&model_name).await?;
         return Ok(());
     }
 
@@ -144,6 +140,45 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Download a model with CLI progress bar
+async fn download_model_cli(model_name: &str) -> Result<std::path::PathBuf> {
+    let model_info = transcribble_core::get_model_info(model_name)
+        .ok_or_else(|| anyhow::anyhow!("Unknown model: {}", model_name))?;
+
+    println!("Downloading {} ({} MB)...", model_info.name, model_info.size_mb);
+
+    let pb = Arc::new(std::sync::Mutex::new(None::<ProgressBar>));
+    let pb_clone = pb.clone();
+
+    let path = download_model_with_progress(model_name, Some(move |downloaded: u64, total: u64| {
+        let mut pb_guard = pb_clone.lock().unwrap();
+
+        // Initialize progress bar on first callback
+        if pb_guard.is_none() && total > 0 {
+            let bar = ProgressBar::new(total);
+            bar.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+            *pb_guard = Some(bar);
+        }
+
+        if let Some(ref bar) = *pb_guard {
+            bar.set_position(downloaded);
+        }
+    })).await?;
+
+    // Finish the progress bar
+    if let Some(bar) = pb.lock().unwrap().take() {
+        bar.finish_and_clear();
+    }
+
+    println!("Downloaded to: {}", path.display());
+    Ok(path)
+}
+
 async fn run_transcription(model_override: Option<String>, hotkey_override: Option<String>, verbose_override: bool) -> Result<()> {
     // Load config
     let config = if Config::exists() {
@@ -168,7 +203,7 @@ async fn run_transcription(model_override: Option<String>, hotkey_override: Opti
     let verbose = verbose_override || config.output.verbose;
 
     // Load model
-    let ctx = transcription::load_model(&model_path)?;
+    let ctx = load_model(&model_path)?;
 
     // Parse hotkey
     let hotkey = parse_hotkey(&hotkey_str)?;
@@ -205,7 +240,7 @@ async fn run_transcription(model_override: Option<String>, hotkey_override: Opti
     });
 
     // Set up audio capture
-    let (audio_capture, device_info) = audio::AudioCapture::new(is_recording.clone())?;
+    let (audio_capture, device_info) = AudioCapture::new(is_recording.clone())?;
 
     // Set up output manager
     let output = OutputManager::new(&config);
@@ -215,7 +250,7 @@ async fn run_transcription(model_override: Option<String>, hotkey_override: Opti
 
     // Main loop
     let mut last_recording_state = false;
-    let mut enigo = Enigo::new(&Settings::default()).unwrap();
+    let mut enigo = enigo::Enigo::new(&enigo::Settings::default()).unwrap();
 
     loop {
         let current_recording_state = is_recording.load(Ordering::SeqCst);
@@ -244,7 +279,7 @@ async fn run_transcription(model_override: Option<String>, hotkey_override: Opti
             let audio_data = audio_capture.take_audio();
 
             if !audio_data.is_empty() {
-                match transcription::transcribe(&ctx, &audio_data, audio_capture.sample_rate, verbose) {
+                match transcribe(&ctx, &audio_data, audio_capture.sample_rate, verbose) {
                     Ok(text) => {
                         let text = text.trim().to_string();
                         if !text.is_empty() {
@@ -262,7 +297,7 @@ async fn run_transcription(model_override: Option<String>, hotkey_override: Opti
                             // Type the text
                             if config.output.auto_type {
                                 std::thread::sleep(std::time::Duration::from_millis(100));
-                                let _ = enigo.text(&text);
+                                let _ = enigo::Keyboard::text(&mut enigo, &text);
                             }
                         } else {
                             output.print_ready();
@@ -341,7 +376,7 @@ fn cmd_config(edit: bool) -> Result<()> {
 
 async fn cmd_models(available: bool, download: Option<String>, use_model: Option<String>) -> Result<()> {
     if let Some(model_name) = download {
-        models::download_model(&model_name).await?;
+        download_model_cli(&model_name).await?;
         return Ok(());
     }
 
@@ -364,7 +399,7 @@ async fn cmd_models(available: bool, download: Option<String>, use_model: Option
             ));
         };
 
-        config.model.path = models::get_model_path(&model_name);
+        config.model.path = get_model_path(&model_name);
         config.model.name = model_name.clone();
         config.save()?;
 
