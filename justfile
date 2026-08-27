@@ -5,15 +5,15 @@ default:
     @just --list
 
 # Build the Tauri app (release mode with bundle)
-build:
+build: deps
     cargo tauri build
 
 # Build without bundling (faster, for testing)
-build-fast:
+build-fast: deps
     cargo tauri build --no-bundle
 
 # Run in development mode
-dev:
+dev: deps
     cargo tauri dev
 
 # Build and install to /Applications (signed with Developer ID certificate)
@@ -52,8 +52,22 @@ uninstall:
     rm -rf "/Applications/Transcribble.app"
     @echo "Uninstalled successfully!"
 
+# Ensure native build tools required by whisper-rs (cmake) are installed
+deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v cmake &> /dev/null; then
+        if ! command -v brew &> /dev/null; then
+            echo "error: cmake is required but not installed, and Homebrew isn't available to install it." >&2
+            echo "Install Homebrew from https://brew.sh, then re-run this command." >&2
+            exit 1
+        fi
+        echo "cmake not found, installing via Homebrew..."
+        brew install cmake
+    fi
+
 # Build the CLI only
-build-cli:
+build-cli: deps
     cargo build --release --bin transcribble
 
 # Install CLI to /usr/local/bin

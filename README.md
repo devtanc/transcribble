@@ -4,9 +4,18 @@ Push-to-talk voice typing using local Whisper models. Hold a hotkey, speak, rele
 
 ## Installation
 
+This is a Cargo workspace, so `cargo install --path .` won't work at the
+root (it has no package to install, only a virtual manifest). Use the
+`just` recipe instead, which builds the CLI and installs it to
+`/usr/local/bin`:
+
 ```bash
-cargo install --path .
+just install-cli
 ```
+
+Note: this copies into `/usr/local/bin`, which typically requires `sudo`
+to write to — rerun with `sudo just install-cli` if it fails with a
+permissions error.
 
 ## Quick Start
 
