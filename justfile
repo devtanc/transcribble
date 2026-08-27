@@ -70,10 +70,12 @@ deps:
 build-cli: deps
     cargo build --release --bin transcribble
 
-# Install CLI to /usr/local/bin
+# Install CLI to ~/.cargo/bin (no sudo needed)
 install-cli: build-cli
-    cp target/release/transcribble /usr/local/bin/
-    @echo "CLI installed to /usr/local/bin/transcribble"
+    mkdir -p ~/.cargo/bin
+    cp target/release/transcribble ~/.cargo/bin/
+    @echo "CLI installed to ~/.cargo/bin/transcribble"
+    @echo "Run 'transcribble' to launch setup, which offers a shortcut alias (e.g. tscrbl)."
 
 # Run the CLI
 cli *ARGS:

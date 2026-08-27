@@ -7,15 +7,12 @@ Push-to-talk voice typing using local Whisper models. Hold a hotkey, speak, rele
 This is a Cargo workspace, so `cargo install --path .` won't work at the
 root (it has no package to install, only a virtual manifest). Use the
 `just` recipe instead, which builds the CLI and installs it to
-`/usr/local/bin`:
+`~/.cargo/bin` as `transcribble` — no `sudo` needed, since that directory
+is already user-writable and on your `PATH`:
 
 ```bash
 just install-cli
 ```
-
-Note: this copies into `/usr/local/bin`, which typically requires `sudo`
-to write to — rerun with `sudo just install-cli` if it fails with a
-permissions error.
 
 ## Quick Start
 
@@ -28,8 +25,9 @@ transcribble
 The wizard will guide you through:
 1. Downloading a Whisper model
 2. Choosing your push-to-talk hotkey
+3. Optionally adding a shorter command alias (defaults to `tscrbl`, or press enter to skip)
 
-Once configured, just run `transcribble` to start. Hold your hotkey to record, release to transcribe.
+Once configured, just run `transcribble` (or your shortcut) to start. Hold your hotkey to record, release to transcribe.
 
 ## Commands
 
@@ -48,6 +46,10 @@ transcribble history           # Show recent transcriptions
 transcribble history -c 20     # Show last 20 entries
 transcribble history --export transcript.txt
 transcribble history --clear
+
+transcribble uninstall               # Remove the binary, shortcuts, config, models, and history
+transcribble uninstall --keep-data   # Remove the binary and shortcuts, keep config/models/history
+transcribble uninstall --yes         # Skip the confirmation prompt
 ```
 
 ## Available Models

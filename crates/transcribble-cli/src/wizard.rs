@@ -1,6 +1,6 @@
 use anyhow::Result;
 use console::style;
-use dialoguer::{theme::ColorfulTheme, Select};
+use dialoguer::{theme::ColorfulTheme, Input, Select};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -50,6 +50,48 @@ async fn download_model_with_cli_progress(model_name: &str) -> Result<std::path:
 
     println!("Downloaded to: {}", path.display());
     Ok(path)
+}
+
+/// Symlink `name` to the currently running executable in ~/.cargo/bin,
+/// which is user-writable and already on PATH — no sudo required.
+fn setup_shortcut(name: &str) -> Result<()> {
+    if name.contains('/') {
+        println!(
+            "{} '{}' isn't a valid command name (no slashes).",
+            style("✗").red(),
+            name
+        );
+        return Ok(());
+    }
+
+    let current_exe = std::env::current_exe()?;
+    let bin_dir = crate::cargo_bin_dir();
+    std::fs::create_dir_all(&bin_dir)?;
+    let link_path = bin_dir.join(name);
+
+    // Mirror `ln -sf`: replace anything already at the destination
+    let _ = std::fs::remove_file(&link_path);
+
+    println!();
+    match std::os::unix::fs::symlink(&current_exe, &link_path) {
+        Ok(()) => {
+            println!(
+                "{} Shortcut '{}' is ready to use ({}).",
+                style("✓").green(),
+                name,
+                link_path.display()
+            );
+        }
+        Err(e) => {
+            println!(
+                "{} Couldn't create the shortcut ({e}). You can do it manually later with:",
+                style("✗").red()
+            );
+            println!("  ln -sf {} {}", current_exe.display(), link_path.display());
+        }
+    }
+
+    Ok(())
 }
 
 /// Run the interactive setup wizard
@@ -123,6 +165,32 @@ pub async fn run_wizard() -> Result<Config> {
         .interact()?;
 
     let selected_hotkey = HOTKEY_OPTIONS[hotkey_selection].0.to_string();
+
+    // Step 3: Command shortcut (optional)
+    println!();
+    println!("{}", style("Step 3: Command Shortcut (optional)").bold());
+    println!();
+    println!("You can add a shorter alias for the 'transcribble' command.");
+    println!("Leave the default and press enter, clear it to skip.");
+    println!();
+
+    let shortcut: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Shortcut command name (blank to skip)")
+        .default("tscrbl".to_string())
+        .allow_empty(true)
+        .interact_text()?;
+
+    let shortcut = shortcut.trim();
+    if shortcut.is_empty() {
+        println!("Skipping shortcut setup.");
+    } else if shortcut == "transcribble" {
+        println!(
+            "{} Skipping — that's already the main command name.",
+            style("!").yellow()
+        );
+    } else {
+        setup_shortcut(shortcut)?;
+    }
 
     // Create and save config
     let config = Config::new(model_path, selected_model.name.to_string(), selected_hotkey.clone());

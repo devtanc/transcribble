@@ -86,6 +86,17 @@ enum Commands {
         #[arg(short, long, default_value = "10")]
         count: usize,
     },
+
+    /// Remove transcribble and all its data (binary, shortcuts, config, models, history)
+    Uninstall {
+        /// Skip the confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Keep the config, downloaded models, and history
+        #[arg(long)]
+        keep_data: bool,
+    },
 }
 
 #[tokio::main]
@@ -122,6 +133,9 @@ async fn main() -> Result<()> {
             count,
         }) => {
             cmd_history(clear, export, count)?;
+        }
+        Some(Commands::Uninstall { yes, keep_data }) => {
+            cmd_uninstall(yes, keep_data)?;
         }
         Some(Commands::Run) | None => {
             // Check for first run
@@ -541,6 +555,95 @@ fn cmd_history(clear: bool, export: Option<String>, count: usize) -> Result<()> 
         ))
         .dim()
     );
+
+    Ok(())
+}
+
+/// The user-writable bin directory cargo already puts binaries in and adds to PATH.
+pub(crate) fn cargo_bin_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home).join(".cargo").join("bin")
+}
+
+fn cmd_uninstall(yes: bool, keep_data: bool) -> Result<()> {
+    let real_bin = std::env::current_exe()?.canonicalize()?;
+    let bin_dir = cargo_bin_dir();
+
+    // Find any shortcut symlinks (e.g. 'tscrbl') pointing at this binary
+    let mut shortcuts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&bin_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path == real_bin {
+                continue;
+            }
+            if let Ok(target) = std::fs::read_link(&path) {
+                let resolved = bin_dir.join(&target).canonicalize().unwrap_or(target);
+                if resolved == real_bin {
+                    shortcuts.push(path);
+                }
+            }
+        }
+    }
+
+    let app_dir = Config::app_dir();
+
+    println!("{}", style("Uninstall Transcribble").bold());
+    println!("{}", style("-".repeat(25)).dim());
+    println!();
+    println!("This will remove:");
+    println!("  {}", real_bin.display());
+    for shortcut in &shortcuts {
+        println!("  {} (shortcut)", shortcut.display());
+    }
+    if keep_data {
+        println!();
+        println!("Keeping config, models, and history at: {}", app_dir.display());
+    } else {
+        println!("  {} (config, models, history)", app_dir.display());
+    }
+    println!();
+
+    if !yes {
+        print!("Are you sure? [y/N] ");
+        std::io::Write::flush(&mut std::io::stdout())?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if input.trim().to_lowercase() != "y" {
+            println!("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    let mut rm_targets = shortcuts.clone();
+    rm_targets.push(real_bin.clone());
+
+    let mut failed = Vec::new();
+    for target in &rm_targets {
+        if let Err(e) = std::fs::remove_file(target) {
+            failed.push((target.clone(), e));
+        }
+    }
+
+    if failed.is_empty() {
+        println!("{} Removed binary and shortcuts.", style("✓").green());
+    } else {
+        println!(
+            "{} Failed to remove some files:",
+            style("✗").red()
+        );
+        for (path, e) in &failed {
+            println!("  {} ({e})", path.display());
+        }
+    }
+
+    if !keep_data && app_dir.exists() {
+        std::fs::remove_dir_all(&app_dir)?;
+        println!("{} Removed {}", style("✓").green(), app_dir.display());
+    }
+
+    println!();
+    println!("Transcribble has been uninstalled.");
 
     Ok(())
 }

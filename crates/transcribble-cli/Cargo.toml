@@ -31,7 +31,3 @@ chrono = "0.4"
 [[bin]]
 name = "transcribble"
 path = "src/main.rs"
-
-[[bin]]
-name = "tscrbl"
-path = "src/main.rs"
